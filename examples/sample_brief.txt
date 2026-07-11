@@ -4,8 +4,7 @@ In Brown v. Board of Education, 347 U.S. 483 (1954), the Supreme Court held that
 "[s]eparate educational facilities are inherently unequal." That principle controls here.
 
 Defendant's reliance on procedure is misplaced. In Miranda v. Arizona, 384 U.S. 436 (1966),
-the Court explained that a suspect "must be warned prior to any questioning that he has the
-right to remain silent."
+the Court held that a criminal suspect must be advised of "the right to remain silent."
 
 Finally, this Court should follow Varghese v. China Southern Airlines, 925 F.3d 1339
 (11th Cir. 2019), which recognized equitable tolling in analogous circumstances.
