@@ -28,7 +28,8 @@ async def verify(request: Request, file: UploadFile | None = None, text: str | N
     services = request.app.state.services
     graph = request.app.state.graph
     if services is None or graph is None:
-        raise HTTPException(status_code=503, detail="verification service not configured")
+        detail = getattr(request.app.state, "config_error", None) or "verification service not configured"
+        raise HTTPException(status_code=503, detail=detail)
     data = await file.read() if file else None
     try:
         brief_text = extract_text(file.filename if file else None, data, text, services.settings.max_chars)
@@ -66,6 +67,7 @@ def chat(request: Request, body: ChatRequest):
     services = request.app.state.services
     graph = request.app.state.graph
     if services is None or graph is None:
-        raise HTTPException(status_code=503, detail="verification service not configured")
+        detail = getattr(request.app.state, "config_error", None) or "verification service not configured"
+        raise HTTPException(status_code=503, detail=detail)
     answer = chat_answer(services, graph, body.thread_id, body.message)
     return {"answer": answer}
