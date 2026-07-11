@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: finch-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    envVars:
+      - key: FINCH_GATEWAY_API_KEY
+        sync: false
+      - key: FINCH_GATEWAY_BASE_URL
+        value: https://ai-gateway.vercel.sh/v1
+      - key: FINCH_EXTRACTION_MODEL
+        value: anthropic/claude-haiku-4.5
+      - key: FINCH_ADJUDICATION_MODEL
+        value: anthropic/claude-sonnet-5
+      - key: FINCH_VOYAGE_API_KEY
+        sync: false
+      - key: FINCH_EMBEDDING_MODEL
+        value: voyage-law-2
+      - key: FINCH_QDRANT_URL
+        sync: false
+      - key: FINCH_QDRANT_API_KEY
+        sync: false
+      - key: FINCH_TAVILY_API_KEY
+        sync: false
+      - key: FINCH_COURTLISTENER_TOKEN
+        sync: false
+      - key: FINCH_DATABASE_URL
+        sync: false
+      - key: FINCH_FRONTEND_ORIGIN
+        sync: false
+      - key: LANGSMITH_TRACING
+        value: "true"
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_PROJECT
+        value: finch
