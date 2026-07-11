@@ -3,9 +3,11 @@ const BACKEND = process.env.BACKEND_URL ?? "http://localhost:8000";
 async function proxy(req: Request, params: Promise<{ path: string[] }>) {
   const { path } = await params;
   const url = `${BACKEND}/api/${path.join("/")}`;
+  const headers = new Headers(req.headers);
+  for (const h of ["host", "connection", "content-length"]) headers.delete(h);
   const res = await fetch(url, {
     method: req.method,
-    headers: req.headers,
+    headers,
     body: req.method === "GET" ? undefined : req.body,
     // @ts-expect-error duplex is required to stream a request body
     duplex: "half",
