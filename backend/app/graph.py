@@ -87,18 +87,26 @@ def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> Unit
 
     chunks = chunk_opinion(opinion, unit.citation, unit.case_name)
     vstore = services.vstore(session_id)
-    vstore.index_chunks(chunks)
+    indexed = False
+    try:
+        vstore.index_chunks(chunks)
+        indexed = True
+    except Exception as exc:
+        trail.append(f"Semantic index unavailable ({type(exc).__name__}), using text-only checks")
 
     quote_status = QuoteStatus.NO_QUOTE
     quote_conf = 1.0
     for q in unit.quotes:
         status, score = check_quote(q, opinion)
-        if status != QuoteStatus.VERBATIM:
-            hits = vstore.search(q, k=3, citation=unit.citation)
-            recheck = " ".join(h.text for h in hits)
-            status2, score2 = check_quote(q, recheck)
-            if status2 == QuoteStatus.VERBATIM:
-                status, score = status2, score2
+        if status != QuoteStatus.VERBATIM and indexed:
+            try:
+                hits = vstore.search(q, k=3, citation=unit.citation)
+                recheck = " ".join(h.text for h in hits)
+                status2, score2 = check_quote(q, recheck)
+                if status2 == QuoteStatus.VERBATIM:
+                    status, score = status2, score2
+            except Exception:
+                pass
         if quote_status in (QuoteStatus.NO_QUOTE, QuoteStatus.VERBATIM):
             quote_status, quote_conf = status, score
         elif status == QuoteStatus.NOT_FOUND:
@@ -108,7 +116,14 @@ def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> Unit
     holding_conf = 1.0
     explanation = ""
     if unit.claim:
-        passages = [h.text for h in vstore.search(unit.claim, k=4, citation=unit.citation)]
+        passages: list[str] = []
+        if indexed:
+            try:
+                passages = [h.text for h in vstore.search(unit.claim, k=4, citation=unit.citation)]
+            except Exception:
+                passages = []
+        if not passages:
+            passages = [opinion[:6000]]
         assessment = adjudicate(unit.claim, passages, services.llm_judge)
         holding, holding_conf, explanation = (
             assessment.status,

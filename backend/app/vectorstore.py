@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 
 import httpx
@@ -23,8 +24,9 @@ def make_qdrant_client(url: str, api_key: str) -> QdrantClient:
 
 
 class VoyageEmbedder:
-    def __init__(self, api_key: str, model: str, client: httpx.Client | None = None):
+    def __init__(self, api_key: str, model: str, client: httpx.Client | None = None, max_retries: int = 4):
         self.model = model
+        self.max_retries = max_retries
         self._client = client or httpx.Client(
             base_url="https://api.voyageai.com/v1",
             headers={"Authorization": f"Bearer {api_key}"},
@@ -32,9 +34,16 @@ class VoyageEmbedder:
         )
 
     def _embed(self, texts: list[str], input_type: str) -> list[list[float]]:
-        r = self._client.post(
-            "/embeddings", json={"model": self.model, "input": texts, "input_type": input_type}
-        )
+        r = None
+        for attempt in range(self.max_retries):
+            r = self._client.post(
+                "/embeddings", json={"model": self.model, "input": texts, "input_type": input_type}
+            )
+            if r.status_code == 429 and attempt < self.max_retries - 1:
+                retry_after = r.headers.get("retry-after")
+                time.sleep(float(retry_after) if retry_after else min(2**attempt, 20))
+                continue
+            break
         r.raise_for_status()
         data = sorted(r.json()["data"], key=lambda d: d["index"])
         return [d["embedding"] for d in data]

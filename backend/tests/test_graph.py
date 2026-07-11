@@ -79,6 +79,24 @@ def test_graph_end_to_end_verdicts():
     assert results["925 F.3d 1339"]["search_trail"]
 
 
+def test_graph_survives_embedding_failure():
+    services = make_test_services()
+
+    class Boom:
+        def embed_documents(self, texts):
+            raise RuntimeError("429 rate limited")
+
+        def embed_query(self, text):
+            raise RuntimeError("429 rate limited")
+
+    services.embedder = Boom()
+    graph = build_graph(services, checkpointer=MemorySaver())
+    state = graph.invoke({"text": BRIEF, "session_id": "t3"}, {"configurable": {"thread_id": "t3"}})
+    results = {r["citation"]: r for r in state["results"]}
+    assert results["347 U.S. 483"]["verdict"] == Verdict.VERIFIED.value
+    assert results["925 F.3d 1339"]["verdict"] == Verdict.FABRICATED.value
+
+
 def test_chat_answers_from_thread_state():
     services = make_test_services()
     graph = build_graph(services, checkpointer=MemorySaver())
