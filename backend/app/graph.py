@@ -96,6 +96,7 @@ def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> Unit
 
     quote_status = QuoteStatus.NO_QUOTE
     quote_conf = 1.0
+    verbatim_passages: list[str] = []
     for q in unit.quotes:
         status, score = check_quote(q, opinion)
         if status != QuoteStatus.VERBATIM and indexed:
@@ -107,6 +108,8 @@ def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> Unit
                     status, score = status2, score2
             except Exception:
                 pass
+        if status == QuoteStatus.VERBATIM:
+            verbatim_passages.append(q)
         if quote_status in (QuoteStatus.NO_QUOTE, QuoteStatus.VERBATIM):
             quote_status, quote_conf = status, score
         elif status == QuoteStatus.NOT_FOUND:
@@ -116,12 +119,12 @@ def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> Unit
     holding_conf = 1.0
     explanation = ""
     if unit.claim:
-        passages: list[str] = []
+        passages: list[str] = list(verbatim_passages)
         if indexed:
             try:
-                passages = [h.text for h in vstore.search(unit.claim, k=4, citation=unit.citation)]
+                passages += [h.text for h in vstore.search(unit.claim, k=6, citation=unit.citation)]
             except Exception:
-                passages = []
+                pass
         if not passages:
             passages = [opinion[:6000]]
         assessment = adjudicate(unit.claim, passages, services.llm_judge)
