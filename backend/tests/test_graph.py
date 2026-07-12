@@ -79,6 +79,13 @@ def test_graph_end_to_end_verdicts():
     assert results["925 F.3d 1339"]["search_trail"]
 
 
+def test_make_checkpointer_defaults_to_memory():
+    from app.graph import make_checkpointer
+
+    cp = make_checkpointer(Settings(_env_file=None, database_url=""))
+    assert isinstance(cp, MemorySaver)
+
+
 def test_graph_survives_embedding_failure():
     services = make_test_services()
 

@@ -31,7 +31,21 @@ class VerifyState(TypedDict, total=False):
 
 
 def make_checkpointer(settings):
-    return MemorySaver()
+    if not settings.database_url:
+        return MemorySaver()
+    from langgraph.checkpoint.postgres import PostgresSaver
+    from psycopg_pool import ConnectionPool
+
+    pool = ConnectionPool(
+        conninfo=settings.database_url,
+        max_size=10,
+        kwargs={"autocommit": True, "prepare_threshold": 0},
+        open=False,
+    )
+    pool.open()
+    saver = PostgresSaver(pool)
+    saver.setup()
+    return saver
 
 
 def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> UnitResult:

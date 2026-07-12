@@ -30,7 +30,15 @@ def create_app(services=None) -> FastAPI:
     if services is not None:
         from app.graph import build_graph, make_checkpointer
 
-        app.state.graph = build_graph(services, checkpointer=make_checkpointer(settings))
+        try:
+            checkpointer = make_checkpointer(settings)
+        except Exception as exc:
+            from langgraph.checkpoint.memory import MemorySaver
+
+            checkpointer = MemorySaver()
+            if settings.database_url:
+                print(f"WARNING: Postgres memory unavailable, using in-memory checkpointer: {exc}")
+        app.state.graph = build_graph(services, checkpointer=checkpointer)
     app.include_router(router)
 
     @app.get("/health")
