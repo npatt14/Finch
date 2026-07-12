@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import uuid
 
@@ -23,6 +24,13 @@ def _ndjson(obj) -> str:
     return json.dumps(obj, default=str) + "\n"
 
 
+def _require_key(request: Request) -> None:
+    services = request.app.state.services
+    secret = services.settings.api_secret if services else ""
+    if secret and not hmac.compare_digest(request.headers.get("x-finch-key", ""), secret):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
 @router.post("/api/verify")
 async def verify(request: Request, file: UploadFile | None = None, text: str | None = Form(None)):
     services = request.app.state.services
@@ -30,6 +38,7 @@ async def verify(request: Request, file: UploadFile | None = None, text: str | N
     if services is None or graph is None:
         detail = getattr(request.app.state, "config_error", None) or "verification service not configured"
         raise HTTPException(status_code=503, detail=detail)
+    _require_key(request)
     data = await file.read() if file else None
     try:
         brief_text = extract_text(file.filename if file else None, data, text, services.settings.max_chars)
@@ -69,5 +78,6 @@ def chat(request: Request, body: ChatRequest):
     if services is None or graph is None:
         detail = getattr(request.app.state, "config_error", None) or "verification service not configured"
         raise HTTPException(status_code=503, detail=detail)
+    _require_key(request)
     answer = chat_answer(services, graph, body.thread_id, body.message)
     return {"answer": answer}

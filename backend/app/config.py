@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     courtlistener_token: str = ""
     database_url: str = ""
+    api_secret: str = ""
     frontend_origin: str = "*"
     max_units: int = 40
     max_chars: int = 200000

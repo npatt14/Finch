@@ -39,3 +39,19 @@ def test_verify_rejects_empty():
     client = _client()
     r = client.post("/api/verify", data={"text": "   "})
     assert r.status_code == 400
+
+
+def test_gate_rejects_without_key_and_accepts_with_key():
+    from app.config import Settings
+
+    services = make_test_services()
+    services.settings = Settings(_env_file=None, api_secret="topsecret")
+    client = TestClient(create_app(services=services))
+
+    denied = client.post("/api/verify", data={"text": BRIEF})
+    assert denied.status_code == 401
+
+    with client.stream(
+        "POST", "/api/verify", data={"text": BRIEF}, headers={"X-Finch-Key": "topsecret"}
+    ) as ok:
+        assert ok.status_code == 200
