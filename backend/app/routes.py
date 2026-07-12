@@ -31,6 +31,14 @@ def _require_key(request: Request) -> None:
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
+def _client_ip(request: Request) -> str:
+    ip = request.headers.get("x-client-ip") or request.headers.get("x-forwarded-for", "").split(",")[0]
+    ip = ip.strip()
+    if ip:
+        return ip
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/api/verify")
 async def verify(request: Request, file: UploadFile | None = None, text: str | None = Form(None)):
     services = request.app.state.services
@@ -39,6 +47,10 @@ async def verify(request: Request, file: UploadFile | None = None, text: str | N
         detail = getattr(request.app.state, "config_error", None) or "verification service not configured"
         raise HTTPException(status_code=503, detail=detail)
     _require_key(request)
+    if not request.app.state.verify_global_limiter.allow():
+        raise HTTPException(status_code=429, detail="Finch is busy right now. Please try again in a few minutes.")
+    if not request.app.state.verify_ip_limiter.allow(_client_ip(request)):
+        raise HTTPException(status_code=429, detail="You've run several checks in a short time. Please wait a minute and try again.")
     data = await file.read() if file else None
     try:
         brief_text = extract_text(file.filename if file else None, data, text, services.settings.max_chars)
@@ -79,5 +91,7 @@ def chat(request: Request, body: ChatRequest):
         detail = getattr(request.app.state, "config_error", None) or "verification service not configured"
         raise HTTPException(status_code=503, detail=detail)
     _require_key(request)
+    if not request.app.state.chat_ip_limiter.allow(_client_ip(request)):
+        raise HTTPException(status_code=429, detail="Too many questions too quickly. Please wait a moment.")
     answer = chat_answer(services, graph, body.thread_id, body.message)
     return {"answer": answer}

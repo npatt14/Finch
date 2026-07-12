@@ -14,6 +14,11 @@ def create_app(services=None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    from app.ratelimit import SlidingWindowLimiter
+
+    app.state.verify_ip_limiter = SlidingWindowLimiter(settings.verify_rate_per_ip, settings.rate_window_seconds)
+    app.state.verify_global_limiter = SlidingWindowLimiter(settings.verify_rate_global, settings.global_window_seconds)
+    app.state.chat_ip_limiter = SlidingWindowLimiter(settings.chat_rate_per_ip, settings.rate_window_seconds)
     config_error = None
     if services is None and settings.gateway_api_key:
         from app.services import build_services

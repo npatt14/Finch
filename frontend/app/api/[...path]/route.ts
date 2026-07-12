@@ -5,6 +5,9 @@ async function proxy(req: Request, params: Promise<{ path: string[] }>) {
   const url = `${BACKEND}/api/${path.join("/")}`;
   const headers = new Headers(req.headers);
   for (const h of ["host", "connection", "content-length"]) headers.delete(h);
+  const clientIp = req.headers.get("x-real-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  headers.delete("x-client-ip");
+  if (clientIp) headers.set("x-client-ip", clientIp);
   if (process.env.API_SECRET) headers.set("x-finch-key", process.env.API_SECRET);
   const res = await fetch(url, {
     method: req.method,

@@ -19,3 +19,8 @@ class Settings(BaseSettings):
     frontend_origin: str = "*"
     max_units: int = 40
     max_chars: int = 200000
+    verify_rate_per_ip: int = 8
+    verify_rate_global: int = 80
+    chat_rate_per_ip: int = 40
+    rate_window_seconds: int = 600
+    global_window_seconds: int = 3600

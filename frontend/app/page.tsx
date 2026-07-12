@@ -35,7 +35,12 @@ export default function Home() {
     try {
       const res = await fetch("/api/verify", { method: "POST", body: form });
       if (!res.ok || !res.body) {
-        setError((await res.text()) || "Verification failed.");
+        let msg = "Verification failed.";
+        try {
+          const j = await res.json();
+          if (j?.detail) msg = j.detail;
+        } catch {}
+        setError(msg);
         return;
       }
       const reader = res.body.getReader();

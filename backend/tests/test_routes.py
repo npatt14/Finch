@@ -41,6 +41,19 @@ def test_verify_rejects_empty():
     assert r.status_code == 400
 
 
+def test_rate_limit_returns_429_after_cap():
+    from app.ratelimit import SlidingWindowLimiter
+
+    app = create_app(services=make_test_services())
+    app.state.verify_ip_limiter = SlidingWindowLimiter(2, 600)
+    client = TestClient(app)
+    for _ in range(2):
+        with client.stream("POST", "/api/verify", data={"text": BRIEF}) as r:
+            assert r.status_code == 200
+    blocked = client.post("/api/verify", data={"text": BRIEF})
+    assert blocked.status_code == 429
+
+
 def test_gate_rejects_without_key_and_accepts_with_key():
     from app.config import Settings
 

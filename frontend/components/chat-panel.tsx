@@ -23,7 +23,8 @@ export function ChatPanel({ threadId }: { threadId: string }) {
         body: JSON.stringify({ thread_id: threadId, message: q }),
       });
       const data = await r.json();
-      setMessages((m) => [...m, { role: "finch", text: data.answer ?? "No answer." }]);
+      const text = r.ok ? (data.answer ?? "No answer.") : (data.detail ?? "Something went wrong.");
+      setMessages((m) => [...m, { role: "finch", text }]);
     } catch {
       setMessages((m) => [...m, { role: "finch", text: "Something went wrong answering that." }]);
     } finally {
