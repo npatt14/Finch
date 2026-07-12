@@ -17,7 +17,9 @@ async function proxy(req: Request, params: Promise<{ path: string[] }>) {
     duplex: "half",
     cache: "no-store",
   });
-  return new Response(res.body, { status: res.status, headers: res.headers });
+  const responseHeaders = new Headers(res.headers);
+  for (const h of ["content-encoding", "content-length", "transfer-encoding"]) responseHeaders.delete(h);
+  return new Response(res.body, { status: res.status, headers: responseHeaders });
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ path: string[] }> }) {
