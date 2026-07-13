@@ -10,6 +10,7 @@ from langgraph.types import Send
 from app.adjudicate import adjudicate
 from app.chunking import chunk_opinion
 from app.extraction import attach_quotes_and_claims, detect_injection, extract_citation_units
+from app.metadata import apply_attribution
 from app.models import (
     CitationUnit,
     ExistenceStatus,
@@ -99,7 +100,9 @@ def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> Unit
             search_trail=trail,
         )
 
-    chunks = chunk_opinion(opinion, unit.citation, unit.case_name)
+    chunks = chunk_opinion(
+        opinion, unit.citation, unit.case_name, target_tokens=services.settings.chunk_target_tokens
+    )
     vstore = services.vstore(session_id)
     indexed = False
     try:
@@ -152,6 +155,15 @@ def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> Unit
 
     confidence = min(quote_conf, holding_conf) if unit.claim or unit.quotes else 1.0
     verdict = decide_verdict(ExistenceStatus.FOUND, quote_status, holding, confidence)
+    if services.settings.metadata_check and (unit.asserted_court or unit.asserted_year):
+        new_verdict, reason = apply_attribution(
+            verdict, unit.citation, unit.asserted_court, unit.asserted_year, services.cl.case_year(cluster_id)
+        )
+        if reason:
+            trail.append("Attribution check: " + reason)
+        if new_verdict != verdict:
+            explanation = "Citation misattributed. " + reason
+        verdict = new_verdict
     return UnitResult(
         unit_id=unit.unit_id,
         citation=unit.citation,

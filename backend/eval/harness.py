@@ -8,6 +8,7 @@ from pathlib import Path
 from app.adjudicate import adjudicate
 from app.chunking import chunk_opinion
 from app.config import Settings
+from app.metadata import apply_attribution, parse_asserted_for_span
 from app.models import (
     CitationUnit,
     ExistenceStatus,
@@ -52,10 +53,18 @@ def verify_item(
     services, item: BenchItem, opinion_cache: dict, indexed: set, use_vectors: bool = False
 ) -> EvalResult:
     t0 = time.time()
+    brief = item.brief_text or ""
+    cite_pos = brief.find(item.citation)
+    if cite_pos >= 0:
+        asserted_court, asserted_year = parse_asserted_for_span(brief, cite_pos, cite_pos + len(item.citation))
+    else:
+        asserted_court, asserted_year = None, None
     unit = CitationUnit(
         unit_id=1,
         citation=item.citation,
         case_name=item.case_name,
+        asserted_court=asserted_court,
+        asserted_year=asserted_year,
         quotes=[item.quote] if item.quote else [],
         claim=item.claim,
     )
@@ -83,11 +92,16 @@ def verify_item(
         if opinion is None:
             opinion = services.cl.opinion_text(cluster_id)
             opinion_cache[cluster_id] = opinion
-        chunks = chunk_opinion(opinion, item.citation, item.case_name) if opinion else []
+        chunks = (
+            chunk_opinion(opinion, item.citation, item.case_name, target_tokens=services.settings.chunk_target_tokens)
+            if opinion
+            else []
+        )
         vstore = services.vstore(f"evalcase{cluster_id}")
         indexed_ok = cluster_id in indexed
         if use_vectors and chunks and not indexed_ok:
             try:
+                vstore.drop()
                 vstore.index_chunks(chunks)
                 indexed.add(cluster_id)
                 indexed_ok = True
@@ -128,6 +142,13 @@ def verify_item(
 
         confidence = min(quote_conf, holding_conf) if (item.claim or unit.quotes) else 1.0
         verdict = decide_verdict(ExistenceStatus.FOUND, quote_status, holding, confidence)
+        if services.settings.metadata_check and (unit.asserted_court or unit.asserted_year):
+            new_verdict, reason = apply_attribution(
+                verdict, unit.citation, unit.asserted_court, unit.asserted_year, services.cl.case_year(cluster_id)
+            )
+            if new_verdict != verdict:
+                explanation = "Citation misattributed. " + reason
+            verdict = new_verdict
 
     verdict_str = verdict.value
     actual_flag = verdict_str != "verified"
@@ -152,8 +173,10 @@ def verify_item(
     )
 
 
-def run(items: list[BenchItem], throttle: float = 0.4, use_vectors: bool = False) -> list[EvalResult]:
-    services = build_services(Settings())
+def run(
+    items: list[BenchItem], throttle: float = 0.4, use_vectors: bool = False, settings: Settings | None = None
+) -> list[EvalResult]:
+    services = build_services(settings or Settings())
     services.embedder = CachedEmbedder(services.embedder, DATA_DIR / "embcache")
     services.cl = CachedCourtListener(services.cl, DATA_DIR / "clcache")
     opinion_cache: dict = {}

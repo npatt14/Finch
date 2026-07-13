@@ -42,6 +42,7 @@ def chunk_opinion(
     target_tokens: int = 1000,
     overlap_tokens: int = 150,
 ) -> list[Chunk]:
+    overlap_tokens = min(overlap_tokens, target_tokens // 4)
     paras = _split_paragraphs(text, target_tokens)
     if not paras:
         return []

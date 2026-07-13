@@ -58,11 +58,11 @@ class _VoyageEmbeddings(Embeddings):
         return self.inner.embed_query(text)
 
 
-def _build_samples(per_class: int | None) -> tuple[list, list[str]]:
+def _build_samples(per_class: int | None, results_file: str = "results.jsonl") -> tuple[list, list[str]]:
     dataset = {it.id: it for it in load_dataset()}
     results = [
         json.loads(line)
-        for line in (DATA_DIR / "results.jsonl").read_text().splitlines()
+        for line in (DATA_DIR / results_file).read_text().splitlines()
         if line.strip()
     ]
     buckets: dict[str, list] = defaultdict(list)
@@ -91,13 +91,16 @@ def _build_samples(per_class: int | None) -> tuple[list, list[str]]:
 
 
 def main():
-    per_class = int(sys.argv[1]) if len(sys.argv) > 1 else 6
+    config = sys.argv[1] if len(sys.argv) > 1 else "default"
+    per_class = int(sys.argv[2]) if len(sys.argv) > 2 else 6
+    results_file = "results.jsonl" if config == "default" else f"results_{config}.jsonl"
+    suffix = "" if config == "default" else f"_{config}"
     settings = Settings()
-    samples, ids = _build_samples(per_class)
+    samples, ids = _build_samples(per_class, results_file)
     if not samples:
-        print("No adjudicated items with contexts found. Run the harness first.")
+        print(f"No adjudicated items with contexts found in {results_file}.")
         return
-    print(f"Scoring {len(samples)} adjudicated briefs with RAGAS (<= {per_class}/class)...\n")
+    print(f"Scoring {len(samples)} adjudicated briefs from {results_file} with RAGAS (<= {per_class}/class)...\n")
 
     llm = LangchainLLMWrapper(
         ChatOpenAI(
@@ -127,12 +130,12 @@ def main():
 
     df = result.to_pandas()
     df.insert(0, "id", ids[: len(df)])
-    df.to_csv(DATA_DIR / "ragas_results.csv", index=False)
+    df.to_csv(DATA_DIR / f"ragas_results{suffix}.csv", index=False)
 
     metric_cols = [c for c in df.columns if c not in ("id", "user_input", "retrieved_contexts", "response", "reference")]
     summary = {c: round(float(df[c].mean(skipna=True)), 4) for c in metric_cols}
     summary["n_samples"] = len(df)
-    (DATA_DIR / "ragas_summary.json").write_text(json.dumps(summary, indent=2))
+    (DATA_DIR / f"ragas_summary{suffix}.json").write_text(json.dumps(summary, indent=2))
 
     print("\n=== RAGAS SUMMARY ===")
     print(json.dumps(summary, indent=2))

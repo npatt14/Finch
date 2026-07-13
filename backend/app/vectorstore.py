@@ -62,10 +62,12 @@ def make_embedder(settings):
 
 
 class SessionVectorStore:
-    def __init__(self, embedder, client: QdrantClient, session_id: str):
+    def __init__(self, embedder, client: QdrantClient, session_id: str, reranker=None, candidates: int = 30):
         self.embedder = embedder
         self.client = client
         self.collection = f"finch_{session_id}"
+        self.reranker = reranker
+        self.candidates = candidates
 
     def _ensure(self, dim: int):
         if not self.client.collection_exists(self.collection):
@@ -95,10 +97,11 @@ class SessionVectorStore:
         flt = None
         if citation:
             flt = Filter(must=[FieldCondition(key="citation", match=MatchValue(value=citation))])
+        limit = max(self.candidates, k) if self.reranker else k
         hits = self.client.query_points(
             self.collection,
             query=self.embedder.embed_query(query),
-            limit=k,
+            limit=limit,
             query_filter=flt,
         ).points
         out = []
@@ -107,7 +110,10 @@ class SessionVectorStore:
             text = p.pop("text", "")
             index = p.pop("index", 0)
             out.append(Chunk(text=text, index=index, meta=p))
-        return out
+        if self.reranker and out:
+            ranking = self.reranker.rerank(query, [c.text for c in out], k)
+            out = [out[i] for i, _ in ranking]
+        return out[:k]
 
     def drop(self) -> None:
         if self.client.collection_exists(self.collection):

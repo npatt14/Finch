@@ -7,6 +7,7 @@ from typing import Callable
 from eyecite import get_citations
 from eyecite.models import FullCaseCitation
 
+from app.metadata import parse_asserted_for_span
 from app.models import CitationUnit
 
 _INJECTION_PATTERNS = [
@@ -78,6 +79,7 @@ def extract_citation_units(text: str, max_units: int) -> list[CitationUnit]:
             continue
         seen.add(normalized)
         start, end = cite.span()
+        asserted_court, asserted_year = parse_asserted_for_span(text, start, end)
         units.append(
             CitationUnit(
                 unit_id=len(units) + 1,
@@ -85,6 +87,8 @@ def extract_citation_units(text: str, max_units: int) -> list[CitationUnit]:
                 case_name=_case_name(cite),
                 span_start=start,
                 span_end=end,
+                asserted_court=asserted_court,
+                asserted_year=asserted_year,
             )
         )
         if len(units) >= max_units:

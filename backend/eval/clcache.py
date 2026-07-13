@@ -37,3 +37,12 @@ class CachedCourtListener:
         if text:
             p.write_text(text)
         return text
+
+    def case_year(self, cluster_id: int) -> int | None:
+        p = self.dir / f"year-{cluster_id}.json"
+        if p.exists():
+            return json.loads(p.read_text())
+        year = self.inner.case_year(cluster_id)
+        if year is not None:
+            p.write_text(json.dumps(year))
+        return year

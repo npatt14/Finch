@@ -41,6 +41,8 @@ class CitationUnit(BaseModel):
     case_name: str | None = None
     span_start: int = 0
     span_end: int = 0
+    asserted_court: str | None = None
+    asserted_year: str | None = None
     quotes: list[str] = Field(default_factory=list)
     claim: str | None = None
 

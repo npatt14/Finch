@@ -46,6 +46,15 @@ class CourtListenerClient:
             return ExistenceStatus.AMBIGUOUS, None, None
         return status, None, None
 
+    def case_year(self, cluster_id: int) -> int | None:
+        try:
+            r = self._client.get(f"{self.base_url}/clusters/{cluster_id}/")
+            r.raise_for_status()
+            date_filed = (r.json().get("date_filed") or "")[:4]
+        except (httpx.HTTPError, ValueError):
+            return None
+        return int(date_filed) if date_filed.isdigit() else None
+
     def opinion_text(self, cluster_id: int) -> str:
         try:
             r = self._client.get(f"{self.base_url}/opinions/", params={"cluster": cluster_id})

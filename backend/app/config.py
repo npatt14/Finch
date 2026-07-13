@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     adjudication_model: str = "anthropic/claude-sonnet-5"
     voyage_api_key: str = ""
     embedding_model: str = "voyage-law-2"
+    rerank_enabled: bool = False
+    rerank_model: str = "rerank-2.5"
+    retrieval_candidates: int = 30
+    chunk_target_tokens: int = 1000
+    metadata_check: bool = False
     qdrant_url: str = ""
     qdrant_api_key: str = ""
     tavily_api_key: str = ""
