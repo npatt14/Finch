@@ -74,6 +74,7 @@ class SessionVectorStore:
             self.client.create_collection(
                 self.collection, vectors_config=VectorParams(size=dim, distance=Distance.COSINE)
             )
+            self.client.create_payload_index(self.collection, field_name="citation", field_schema="keyword")
 
     def index_chunks(self, chunks: list[Chunk]) -> int:
         if not chunks:

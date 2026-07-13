@@ -112,8 +112,8 @@ def verify_item(
             if use_vectors and indexed_ok:
                 try:
                     return [h.text for h in vstore.search(query, k=k, citation=item.citation)]
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(f"  ! retrieval fell back to opinion head for {item.id}: {type(exc).__name__}: {str(exc)[:90]}")
             return [c.text for c in chunks[:k]]
 
         quote_conf = 1.0

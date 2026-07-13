@@ -45,6 +45,21 @@ def test_citation_filter_restricts_results():
     assert hits and all(h.meta["citation"] == "384 U.S. 436" for h in hits)
 
 
+def test_citation_payload_index_is_created():
+    client = make_qdrant_client("", "")
+    calls = []
+    original = client.create_payload_index
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    client.create_payload_index = spy
+    store = SessionVectorStore(HashEmbedder(), client, "idxtest")
+    store.index_chunks(_chunks())
+    assert any(k.get("field_name") == "citation" for k in calls)
+
+
 def test_drop_removes_collection():
     client = make_qdrant_client("", "")
     store = SessionVectorStore(HashEmbedder(), client, "sess3")
