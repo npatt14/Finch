@@ -24,7 +24,7 @@ def make_qdrant_client(url: str, api_key: str) -> QdrantClient:
 
 
 class VoyageEmbedder:
-    def __init__(self, api_key: str, model: str, client: httpx.Client | None = None, max_retries: int = 4):
+    def __init__(self, api_key: str, model: str, client: httpx.Client | None = None, max_retries: int = 6):
         self.model = model
         self.max_retries = max_retries
         self._client = client or httpx.Client(

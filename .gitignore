@@ -9,3 +9,5 @@ node_modules/
 .ruff_cache/
 dist/
 .DS_Store
+.vercel
+backend/eval/data/
