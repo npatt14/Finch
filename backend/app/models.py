@@ -71,14 +71,12 @@ def decide_verdict(
     existence: ExistenceStatus,
     quote_status: QuoteStatus,
     holding_status: HoldingStatus,
-    confidence: float,
+    holding_confidence: float,
     threshold: float = 0.6,
 ) -> Verdict:
     if existence == ExistenceStatus.NOT_FOUND:
         return Verdict.FABRICATED
     if existence in (ExistenceStatus.FOUND_WEB, ExistenceStatus.AMBIGUOUS):
-        return Verdict.UNVERIFIABLE
-    if confidence < threshold:
         return Verdict.UNVERIFIABLE
     if quote_status == QuoteStatus.NOT_FOUND:
         return Verdict.NOT_SUPPORTED
@@ -86,4 +84,6 @@ def decide_verdict(
         return Verdict.NOT_SUPPORTED
     if quote_status == QuoteStatus.ALTERED or holding_status == HoldingStatus.PARTIALLY_SUPPORTED:
         return Verdict.ALTERED
+    if holding_status in (HoldingStatus.SUPPORTED, HoldingStatus.NOT_EVALUATED) and holding_confidence < threshold:
+        return Verdict.UNVERIFIABLE
     return Verdict.VERIFIED

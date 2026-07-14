@@ -140,8 +140,8 @@ def verify_item(
             if holding == HoldingStatus.NOT_EVALUATED:
                 holding_conf = 0.0
 
-        confidence = min(quote_conf, holding_conf) if (item.claim or unit.quotes) else 1.0
-        verdict = decide_verdict(ExistenceStatus.FOUND, quote_status, holding, confidence)
+        confidence = holding_conf if item.claim else (quote_conf if unit.quotes else 1.0)
+        verdict = decide_verdict(ExistenceStatus.FOUND, quote_status, holding, holding_conf)
         if services.settings.metadata_check and (unit.asserted_court or unit.asserted_year):
             new_verdict, reason = apply_attribution(
                 verdict, unit.citation, unit.asserted_court, unit.asserted_year, services.cl.case_year(cluster_id)
