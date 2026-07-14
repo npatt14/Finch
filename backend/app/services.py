@@ -6,7 +6,7 @@ from typing import Callable
 from qdrant_client import QdrantClient
 
 from app.config import Settings
-from app.courtlistener import CourtListenerClient
+from app.courtlistener import CachingCourtListener, CourtListenerClient
 from app.escalate import TavilyClient
 from app.llm import make_chat_fn, make_extract_fn, make_judge_fn
 from app.rerank import make_reranker
@@ -34,7 +34,7 @@ class Services:
 def build_services(settings: Settings) -> Services:
     return Services(
         settings=settings,
-        cl=CourtListenerClient(token=settings.courtlistener_token),
+        cl=CachingCourtListener(CourtListenerClient(token=settings.courtlistener_token)),
         tavily=TavilyClient(settings.tavily_api_key),
         llm_extract=make_extract_fn(settings),
         llm_judge=make_judge_fn(settings),
