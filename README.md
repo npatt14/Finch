@@ -1,5 +1,7 @@
 # Finch
 
+> **[📄 Project Spec](https://docs.google.com/document/d/1AqlLhu4Yrv8HblkjIHH_3UlYwfAr7iJw37Q5kdtJRrg/edit?tab=t.0)**
+
 **Verify every citation, quote, and holding in a legal brief before you file.**
 
 Courts sanction attorneys for citing cases that do not exist or do not say what a brief
