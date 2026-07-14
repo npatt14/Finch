@@ -20,6 +20,10 @@ services:
         sync: false
       - key: FINCH_EMBEDDING_MODEL
         value: voyage-law-2
+      - key: FINCH_RERANK_ENABLED
+        value: "true"
+      - key: FINCH_METADATA_CHECK
+        value: "true"
       - key: FINCH_QDRANT_URL
         sync: false
       - key: FINCH_QDRANT_API_KEY
