@@ -1,6 +1,6 @@
 # Finch
 
-> **[📄 Project Spec](https://docs.google.com/document/d/1AqlLhu4Yrv8HblkjIHH_3UlYwfAr7iJw37Q5kdtJRrg/edit?tab=t.0)**
+> **[▶ Demo video](https://www.loom.com/share/f3bceaabf1664cd2b6e778effed003d5)** &nbsp;·&nbsp; **[📄 Project Spec](https://docs.google.com/document/d/1AqlLhu4Yrv8HblkjIHH_3UlYwfAr7iJw37Q5kdtJRrg/edit?tab=t.0)**
 
 Finch verifies every citation, quote, and holding in a legal brief before it is filed. Courts now sanction attorneys for citing cases that do not exist or do not say what the brief claims, and the lawyer is the one on the hook, not the model that drafted it. Finch reads a brief and checks each citation three ways. It confirms the case is real against a live case law corpus, confirms every quoted passage actually appears in the opinion, and judges whether the case genuinely supports the point the brief makes about it. Anything it cannot resolve escalates to web search before Finch ever calls a citation fabricated, because wrongly flagging a real case is the one failure that would make a lawyer stop trusting it. The output is a verdict on every citation with the evidence attached. Finch never edits the brief and never files anything. The attorney makes every fix.
 
