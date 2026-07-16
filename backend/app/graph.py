@@ -150,8 +150,9 @@ def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> Unit
     holding = HoldingStatus.NOT_EVALUATED
     holding_conf = 1.0
     explanation = ""
+    passages: list[str] = []
     if unit.claim:
-        passages: list[str] = list(verbatim_passages)
+        passages = list(verbatim_passages)
         if indexed:
             try:
                 passages += [h.text for h in vstore.search(unit.claim, k=6, citation=unit.citation)]
@@ -193,6 +194,7 @@ def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> Unit
         evidence_url=url,
         explanation=explanation,
         search_trail=trail,
+        retrieved_contexts=passages if unit.claim else [],
     )
 
 

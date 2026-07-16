@@ -159,3 +159,11 @@ def test_graph_degrades_honestly_when_extraction_fails():
     assert any("Quote attachment degraded" in w for w in state["warnings"])
     results = {r["citation"]: r for r in state["results"]}
     assert results["347 U.S. 483"]["verdict"] == Verdict.EXISTS_ONLY.value
+
+
+def test_result_carries_retrieved_contexts():
+    services = make_test_services()
+    graph = build_graph(services, checkpointer=MemorySaver())
+    state = graph.invoke({"text": BRIEF, "session_id": "t8"}, {"configurable": {"thread_id": "t8"}})
+    results = {r["citation"]: r for r in state["results"]}
+    assert results["347 U.S. 483"]["retrieved_contexts"]

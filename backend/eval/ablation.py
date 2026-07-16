@@ -1,28 +1,22 @@
-"""Run the classification harness across retrieval configs to isolate each change's contribution.
-
-baseline      -> coarse chunks, no reranker            (the original RAG)
-finer         -> finer chunks, no reranker             (granularity only)
-rerank        -> coarse chunks + voyage-rerank-2.5      (the advanced retriever)
-rerank_finer  -> finer chunks + voyage-rerank-2.5       (retriever + granularity)
-rerank_meta   -> rerank + court/year metadata check     (the second improvement)
-"""
+"""Run the harness across retrieval configs on identical data. Disk caches for CourtListener and
+embeddings make retrieval inputs identical across configs; only the adjudicator varies run to run."""
 from __future__ import annotations
 
-import json
+import argparse
+from pathlib import Path
 
 from app.config import Settings
-from eval.harness import DATA_DIR, compute_metrics, load_dataset, run
+from eval.harness import DATA_DIR, PRESETS, load_dataset, run_named
 
 CONFIGS = [
-    ("baseline", dict(chunk_target_tokens=1000, rerank_enabled=False, metadata_check=False)),
+    ("baseline", PRESETS["baseline"]),
     ("finer", dict(chunk_target_tokens=500, rerank_enabled=False, metadata_check=False)),
     ("rerank", dict(chunk_target_tokens=1000, rerank_enabled=True, metadata_check=False)),
-    ("rerank_finer", dict(chunk_target_tokens=500, rerank_enabled=True, metadata_check=False)),
-    ("rerank_meta", dict(chunk_target_tokens=1000, rerank_enabled=True, metadata_check=True)),
+    ("rerank_meta", PRESETS["final"]),
 ]
 
 HEADLINE_COLS = [
-    "clean_verified_rate",
+    "real_case_called_fabricated",
     "false_positive_rate_on_clean",
     "fabrication_recall",
     "detection_recall_overall",
@@ -31,26 +25,25 @@ HEADLINE_COLS = [
 
 
 def main():
-    items = load_dataset()
-    summary = []
-    for name, overrides in CONFIGS:
-        print(f"\n=== CONFIG {name}: {overrides} ===\n")
-        results = run(items, use_vectors=True, settings=Settings(**overrides))
-        (DATA_DIR / f"results_{name}.jsonl").write_text("\n".join(r.model_dump_json() for r in results) + "\n")
-        metrics = compute_metrics(results)
-        metrics["config"] = overrides
-        (DATA_DIR / f"metrics_{name}.json").write_text(json.dumps(metrics, indent=2))
-        summary.append((name, metrics))
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--name", required=True)
+    ap.add_argument("--dataset", default=str(DATA_DIR / "briefbench_v2_dev.jsonl"))
+    ap.add_argument("--runs", type=int, default=3)
+    args = ap.parse_args()
+    items = load_dataset(Path(args.dataset))
+    summaries = []
+    for cfg_name, overrides in CONFIGS:
+        print(f"\n=== CONFIG {cfg_name}: {overrides} ===\n")
+        out_dir = DATA_DIR / "runs" / args.name / cfg_name
+        summary = run_named(items, out_dir, Settings(**overrides), args.runs)
+        summaries.append((cfg_name, summary))
 
-    print("\n\n================ ABLATION SUMMARY ================")
-    header = f"{'config':15}" + "".join(f"{c[:14]:>16}" for c in HEADLINE_COLS) + f"{'wrongcourt_flag':>18}"
-    print(header)
-    for name, m in summary:
-        h = m["headline"]
-        wc = m["per_class"].get("wrong_court_year", {}).get("flag_accuracy")
-        line = f"{name:15}" + "".join(f"{str(h.get(c)):>16}" for c in HEADLINE_COLS) + f"{str(wc):>18}"
-        print(line)
-    print(f"\nWrote metrics_<config>.json and results_<config>.jsonl to {DATA_DIR}")
+    print("\n\n================ ABLATION SUMMARY (mean over runs) ================")
+    print(f"{'config':13}" + "".join(f"{c[:18]:>20}" for c in HEADLINE_COLS))
+    for cfg_name, s in summaries:
+        row = "".join(f"{str(s.get(c, {}).get('mean')):>20}" for c in HEADLINE_COLS)
+        print(f"{cfg_name:13}" + row)
+    print(f"\nWrote per run artifacts under {DATA_DIR / 'runs' / args.name}")
 
 
 if __name__ == "__main__":

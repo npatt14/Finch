@@ -60,6 +60,7 @@ class UnitResult(BaseModel):
     evidence_url: str | None = None
     explanation: str = ""
     search_trail: list[str] = Field(default_factory=list)
+    retrieved_contexts: list[str] = Field(default_factory=list)
 
 
 class UnitAttachment(BaseModel):

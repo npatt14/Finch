@@ -1,22 +1,16 @@
 from __future__ import annotations
 
+import argparse
 import json
+import statistics
 import time
 from collections import defaultdict
 from pathlib import Path
 
-from app.adjudicate import adjudicate
-from app.chunking import chunk_opinion
+from langgraph.checkpoint.memory import MemorySaver
+
 from app.config import Settings
-from app.metadata import apply_attribution, parse_asserted_for_span
-from app.models import (
-    CitationUnit,
-    ExistenceStatus,
-    HoldingStatus,
-    QuoteStatus,
-    decide_verdict,
-)
-from app.quotecheck import check_quote
+from app.graph import build_graph
 from app.services import build_services
 from eval.clcache import CachedCourtListener
 from eval.embcache import CachedEmbedder
@@ -30,128 +24,49 @@ from eval.schema import (
 )
 
 DATA_DIR = Path(__file__).parent / "data"
+FLAG_VERDICTS = {"altered", "not_supported", "unverifiable", "fabricated"}
+PRESETS = {
+    "baseline": dict(chunk_target_tokens=1000, rerank_enabled=False, metadata_check=False),
+    "final": dict(chunk_target_tokens=1000, rerank_enabled=True, metadata_check=True),
+}
 
 
 def load_dataset(path: Path | None = None) -> list[BenchItem]:
-    path = path or DATA_DIR / "briefbench.jsonl"
+    path = path or DATA_DIR / "briefbench_v2_dev.jsonl"
     return [BenchItem.model_validate_json(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def _resolve(services, citation: str, retries: int = 5):
-    existence, cluster_id, url = services.cl.resolve(citation)
-    for attempt in range(retries):
-        if existence == ExistenceStatus.FOUND and cluster_id is not None:
-            break
-        if existence == ExistenceStatus.NOT_FOUND:
-            break
-        time.sleep(1.5 * (attempt + 1))
-        existence, cluster_id, url = services.cl.resolve(citation)
-    return existence, cluster_id, url
+def build_eval_graph(settings: Settings):
+    services = build_services(settings)
+    services.embedder = CachedEmbedder(services.embedder, DATA_DIR / "embcache")
+    services.cl = CachedCourtListener(services.cl, DATA_DIR / "clcache")
+    return build_graph(services, checkpointer=MemorySaver())
 
 
-def verify_item(
-    services, item: BenchItem, opinion_cache: dict, indexed: set, use_vectors: bool = False
-) -> EvalResult:
-    t0 = time.time()
-    brief = item.brief_text or ""
-    cite_pos = brief.find(item.citation)
-    if cite_pos >= 0:
-        asserted_court, asserted_year = parse_asserted_for_span(brief, cite_pos, cite_pos + len(item.citation))
-    else:
-        asserted_court, asserted_year = None, None
-    unit = CitationUnit(
-        unit_id=1,
-        citation=item.citation,
-        case_name=item.case_name,
-        asserted_court=asserted_court,
-        asserted_year=asserted_year,
-        quotes=[item.quote] if item.quote else [],
-        claim=item.claim,
+def _error_result(item: BenchItem, message: str) -> EvalResult:
+    return EvalResult(
+        id=item.id, klass=item.klass, citation=item.citation, case_name=item.case_name,
+        expected_verdict=item.expected_verdict, expected_flag=item.expected_flag,
+        actual_verdict="error", actual_flag=False, correct=False,
+        existence="error", quote_status="error", holding_status="error",
+        confidence=0.0, error=message,
     )
-    if item.cluster_id is not None:
-        existence, cluster_id, url = ExistenceStatus.FOUND, item.cluster_id, None
-    else:
-        existence, cluster_id, url = _resolve(services, item.citation)
-    contexts: list[str] = []
-    quote_status = QuoteStatus.NO_QUOTE
-    holding = HoldingStatus.NOT_EVALUATED
-    explanation = ""
-    confidence = 1.0
 
-    if existence == ExistenceStatus.NOT_FOUND:
-        found, _ = services.tavily.search_citation(item.citation, item.case_name)
-        if found:
-            existence = ExistenceStatus.FOUND_WEB
-        verdict = decide_verdict(existence, QuoteStatus.NO_QUOTE, HoldingStatus.NOT_EVALUATED, 1.0)
-    elif existence != ExistenceStatus.FOUND or cluster_id is None:
-        existence = ExistenceStatus.AMBIGUOUS
-        verdict = decide_verdict(existence, QuoteStatus.NO_QUOTE, HoldingStatus.NOT_EVALUATED, 1.0)
-        confidence = 0.0
-    else:
-        opinion = opinion_cache.get(cluster_id)
-        if opinion is None:
-            opinion = services.cl.opinion_text(cluster_id)
-            opinion_cache[cluster_id] = opinion
-        chunks = (
-            chunk_opinion(opinion, item.citation, item.case_name, target_tokens=services.settings.chunk_target_tokens)
-            if opinion
-            else []
-        )
-        vstore = services.vstore(f"evalcase{cluster_id}")
-        indexed_ok = cluster_id in indexed
-        if use_vectors and chunks and not indexed_ok:
-            try:
-                vstore.drop()
-                vstore.index_chunks(chunks)
-                indexed.add(cluster_id)
-                indexed_ok = True
-            except Exception:
-                indexed_ok = False
 
-        def retrieve(query: str, k: int) -> list[str]:
-            if use_vectors and indexed_ok:
-                try:
-                    return [h.text for h in vstore.search(query, k=k, citation=item.citation)]
-                except Exception as exc:
-                    print(f"  ! retrieval fell back to opinion head for {item.id}: {type(exc).__name__}: {str(exc)[:90]}")
-            return [c.text for c in chunks[:k]]
-
-        quote_conf = 1.0
-        verbatim: list[str] = []
-        for q in unit.quotes:
-            status, score = check_quote(q, opinion)
-            if status != QuoteStatus.VERBATIM:
-                hits = retrieve(q, 3)
-                status2, score2 = check_quote(q, " ".join(hits))
-                if status2 == QuoteStatus.VERBATIM:
-                    status, score = status2, score2
-            if status == QuoteStatus.VERBATIM:
-                verbatim.append(q)
-            if quote_status in (QuoteStatus.NO_QUOTE, QuoteStatus.VERBATIM):
-                quote_status, quote_conf = status, score
-            elif status == QuoteStatus.NOT_FOUND:
-                quote_status, quote_conf = status, score
-
-        holding_conf = 1.0
-        if item.claim:
-            contexts = retrieve(item.claim, 6)
-            assessment = adjudicate(item.claim, list(verbatim) + contexts, services.llm_judge)
-            holding, holding_conf, explanation = assessment.status, assessment.confidence, assessment.explanation
-            if holding == HoldingStatus.NOT_EVALUATED:
-                holding_conf = 0.0
-
-        confidence = holding_conf if item.claim else (quote_conf if unit.quotes else 1.0)
-        verdict = decide_verdict(ExistenceStatus.FOUND, quote_status, holding, holding_conf)
-        if services.settings.metadata_check and (unit.asserted_court or unit.asserted_year):
-            new_verdict, reason = apply_attribution(
-                verdict, unit.citation, unit.asserted_court, unit.asserted_year, services.cl.case_year(cluster_id)
-            )
-            if new_verdict != verdict:
-                explanation = "Citation misattributed. " + reason
-            verdict = new_verdict
-
-    verdict_str = verdict.value
-    actual_flag = verdict_str != "verified"
+def verify_item(graph, item: BenchItem, run_id: str) -> EvalResult:
+    t0 = time.time()
+    session = f"eval-{run_id}-{item.id}"
+    state = graph.invoke(
+        {"text": item.brief_text, "session_id": session},
+        {"configurable": {"thread_id": session}},
+    )
+    results = state.get("results", [])
+    match = next((r for r in results if r["citation"] == item.citation), None)
+    if match is None and results:
+        match = results[0]
+    if match is None:
+        return _error_result(item, "no citation unit extracted")
+    verdict = match["verdict"]
     return EvalResult(
         id=item.id,
         klass=item.klass,
@@ -159,42 +74,33 @@ def verify_item(
         case_name=item.case_name,
         expected_verdict=item.expected_verdict,
         expected_flag=item.expected_flag,
-        actual_verdict=verdict_str,
-        actual_flag=actual_flag,
-        correct=verdict_str == item.expected_verdict,
-        existence=existence.value,
-        quote_status=quote_status.value,
-        holding_status=holding.value,
-        confidence=round(confidence, 3),
-        explanation=explanation,
-        retrieved_contexts=contexts,
+        actual_verdict=verdict,
+        actual_flag=verdict in FLAG_VERDICTS,
+        correct=verdict == item.expected_verdict,
+        existence=match["existence"],
+        quote_status=match["quote_status"],
+        holding_status=match["holding_status"],
+        confidence=match["confidence"],
+        explanation=match.get("explanation", ""),
+        warnings=state.get("warnings", []),
+        retrieved_contexts=match.get("retrieved_contexts", []),
         reference_holding=item.reference_holding,
         latency_s=round(time.time() - t0, 2),
     )
 
 
-def run(
-    items: list[BenchItem], throttle: float = 0.4, use_vectors: bool = False, settings: Settings | None = None
-) -> list[EvalResult]:
-    services = build_services(settings or Settings())
-    services.embedder = CachedEmbedder(services.embedder, DATA_DIR / "embcache")
-    services.cl = CachedCourtListener(services.cl, DATA_DIR / "clcache")
-    opinion_cache: dict = {}
-    indexed: set = set()
+def run(items: list[BenchItem], graph, run_id: str, throttle: float = 0.4) -> list[EvalResult]:
     results = []
     for i, item in enumerate(items, 1):
         try:
-            res = verify_item(services, item, opinion_cache, indexed, use_vectors=use_vectors)
+            res = verify_item(graph, item, run_id)
         except Exception as exc:
-            res = EvalResult(
-                id=item.id, klass=item.klass, citation=item.citation, case_name=item.case_name,
-                expected_verdict=item.expected_verdict, expected_flag=item.expected_flag,
-                actual_verdict="error", actual_flag=False, correct=False,
-                existence="error", quote_status="error", holding_status="error",
-                confidence=0.0, error=str(exc),
-            )
+            res = _error_result(item, str(exc))
         results.append(res)
-        print(f"  [{i}/{len(items)}] {item.klass:22} {item.citation:16} exp={item.expected_verdict:12} got={res.actual_verdict}")
+        print(
+            f"  [{i}/{len(items)}] {item.klass:22} {item.citation:26} "
+            f"exp={item.expected_verdict:12} got={res.actual_verdict}"
+        )
         if throttle:
             time.sleep(throttle)
     return results
@@ -209,6 +115,7 @@ def compute_metrics(results: list[EvalResult]) -> dict:
     for r in results:
         by_class[r.klass].append(r)
 
+    real = [r for r in results if r.klass != FABRICATED_CITE]
     clean = by_class.get(CLEAN_VERBATIM, [])
     fab = by_class.get(FABRICATED_CITE, [])
     recent = by_class.get(UNVERIFIABLE_RECENT, [])
@@ -224,10 +131,13 @@ def compute_metrics(results: list[EvalResult]) -> dict:
         }
 
     lat = sorted(r.latency_s for r in results if r.latency_s)
-    metrics = {
+    return {
         "n_items": len(results),
         "errors": sum(r.actual_verdict == "error" for r in results),
         "headline": {
+            "real_case_called_fabricated": _rate(
+                sum(r.actual_verdict == "fabricated" for r in real), len(real)
+            ),
             "false_positive_rate_on_clean": _rate(sum(r.actual_flag for r in clean), len(clean)),
             "clean_verified_rate": _rate(sum(not r.actual_flag for r in clean), len(clean)),
             "fabrication_recall": _rate(sum(r.actual_verdict == "fabricated" for r in fab), len(fab)),
@@ -245,7 +155,38 @@ def compute_metrics(results: list[EvalResult]) -> dict:
             "max": lat[-1] if lat else None,
         },
     }
-    return metrics
+
+
+def aggregate(metric_dicts: list[dict]) -> dict:
+    agg = {}
+    for key in metric_dicts[0]["headline"]:
+        vals = [m["headline"][key] for m in metric_dicts if m["headline"][key] is not None]
+        if not vals:
+            agg[key] = {"mean": None, "sd": None, "runs": []}
+            continue
+        agg[key] = {
+            "mean": round(statistics.mean(vals), 3),
+            "sd": round(statistics.pstdev(vals), 3) if len(vals) > 1 else 0.0,
+            "runs": vals,
+        }
+    return agg
+
+
+def run_named(items: list[BenchItem], out_dir: Path, settings: Settings, n_runs: int, throttle: float = 0.4) -> dict:
+    out_dir.mkdir(parents=True, exist_ok=False)
+    all_metrics = []
+    for n in range(1, n_runs + 1):
+        graph = build_eval_graph(settings)
+        results = run(items, graph, run_id=f"{out_dir.name}-r{n}", throttle=throttle)
+        (out_dir / f"results_r{n}.jsonl").write_text("\n".join(r.model_dump_json() for r in results) + "\n")
+        metrics = compute_metrics(results)
+        (out_dir / f"metrics_r{n}.json").write_text(json.dumps(metrics, indent=2))
+        all_metrics.append(metrics)
+        print(f"\n--- run {n}/{n_runs} headline ---")
+        print(json.dumps(metrics["headline"], indent=2))
+    summary = aggregate(all_metrics)
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    return summary
 
 
 def _stratify(items: list[BenchItem], per_class: int) -> list[BenchItem]:
@@ -256,23 +197,22 @@ def _stratify(items: list[BenchItem], per_class: int) -> list[BenchItem]:
 
 
 def main():
-    items = load_dataset()
-    import os
-    import sys
-
-    if len(sys.argv) > 1:
-        items = _stratify(items, int(sys.argv[1]))
-    use_vectors = os.environ.get("FINCH_EVAL_USE_VECTORS") == "1"
-    mode = "vector-retrieval" if use_vectors else "opinion-head (no Voyage)"
-    print(f"Running harness over {len(items)} items [retrieval: {mode}]...\n")
-    results = run(items, use_vectors=use_vectors)
-    (DATA_DIR / "results.jsonl").write_text("\n".join(r.model_dump_json() for r in results) + "\n")
-    metrics = compute_metrics(results)
-    metrics["retrieval_mode"] = mode
-    (DATA_DIR / "metrics.json").write_text(json.dumps(metrics, indent=2))
-    print("\n=== HEADLINE METRICS ===")
-    print(json.dumps(metrics["headline"], indent=2))
-    print(f"\nWrote results.jsonl and metrics.json to {DATA_DIR}")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--name", required=True)
+    ap.add_argument("--dataset", default=str(DATA_DIR / "briefbench_v2_dev.jsonl"))
+    ap.add_argument("--config", choices=sorted(PRESETS), default="final")
+    ap.add_argument("--runs", type=int, default=1)
+    ap.add_argument("--per-class", type=int, default=0)
+    args = ap.parse_args()
+    items = load_dataset(Path(args.dataset))
+    if args.per_class:
+        items = _stratify(items, args.per_class)
+    settings = Settings(**PRESETS[args.config])
+    out_dir = DATA_DIR / "runs" / args.name
+    print(f"Running {len(items)} items x {args.runs} runs [{args.config}] -> {out_dir}\n")
+    summary = run_named(items, out_dir, settings, args.runs)
+    print("\n=== SUMMARY (mean over runs) ===")
+    print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":
