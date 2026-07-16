@@ -31,6 +31,8 @@ from eval.schema import (
 )
 
 DATA_DIR = Path(__file__).parent / "data"
+PARTIAL = DATA_DIR / "briefbench_v2_partial.jsonl"
+REPORT_PARTIAL = DATA_DIR / "label_report_partial.json"
 
 COURT_LABEL = {
     "ca1": "First Circuit", "ca2": "Second Circuit", "ca3": "Third Circuit",
@@ -235,6 +237,36 @@ def _altered_quote(gen, sentence: str, opinion: str, report: Counter) -> str | N
     return None
 
 
+def _seed_index(item_id: str) -> int | None:
+    prefix, _, idx = item_id.rpartition("-")
+    if prefix in ("fabricated", "recent") or not idx.isdigit():
+        return None
+    return int(idx)
+
+
+def _load_partial() -> tuple[list[BenchItem], Counter, set[int]]:
+    items: list[BenchItem] = []
+    done: set[int] = set()
+    if PARTIAL.exists():
+        for line in PARTIAL.read_text().splitlines():
+            if not line.strip():
+                continue
+            it = BenchItem.model_validate_json(line)
+            items.append(it)
+            idx = _seed_index(it.id)
+            if idx is not None:
+                done.add(idx)
+    report = Counter(json.loads(REPORT_PARTIAL.read_text())) if REPORT_PARTIAL.exists() else Counter()
+    return items, report, done
+
+
+def _checkpoint(new_items: list[BenchItem], report: Counter) -> None:
+    with PARTIAL.open("a") as f:
+        for it in new_items:
+            f.write(it.model_dump_json() + "\n")
+    REPORT_PARTIAL.write_text(json.dumps(dict(report)))
+
+
 def generate(limit_seeds: int | None = None) -> tuple[list[BenchItem], Counter]:
     settings = Settings()
     cl = CourtListenerClient(token=settings.courtlistener_token)
@@ -244,11 +276,20 @@ def generate(limit_seeds: int | None = None) -> tuple[list[BenchItem], Counter]:
     if limit_seeds:
         seeds = seeds[:limit_seeds]
 
-    report: Counter = Counter()
-    items: list[BenchItem] = []
-    prev_quote_pool: list[tuple[str, str]] = []
+    items, report, done = _load_partial()
+    pool_by_idx: dict[int, tuple[str, str]] = {}
+    for it in items:
+        i = _seed_index(it.id)
+        if i is not None and it.reference_holding and i not in pool_by_idx:
+            pool_by_idx[i] = (it.reference_holding, it.case_name or "")
+    prev_quote_pool: list[tuple[str, str]] = [pool_by_idx[i] for i in sorted(pool_by_idx)]
+    if done:
+        print(f"  resuming: {len(done)} seeds already checkpointed, {len(items)} items")
 
     for idx, seed in enumerate(seeds):
+        if idx in done:
+            continue
+        n_before = len(items)
         time.sleep(0.7)
         cite, name, cluster_id = seed["citation"], seed["case_name"], seed["cluster_id"]
         court, year = seed.get("court", ""), seed.get("year")
@@ -318,9 +359,13 @@ def generate(limit_seeds: int | None = None) -> tuple[list[BenchItem], Counter]:
                                    notes="Bare citation, nothing asserted, nothing checkable.", **base))
 
         prev_quote_pool.append((quote, name))
+        _checkpoint(items[n_before:], report)
         print(f"  [{idx + 1}/{len(seeds)}] {name}: ok")
 
+    done_ids = {it.id for it in items}
     for i, (base_cite, name) in enumerate(_fabricated_cites()):
+        if f"fabricated-{i}" in done_ids:
+            continue
         vol, series, base_page = base_cite.split(" ", 2)
         cite = None
         for probe in range(6):
@@ -334,18 +379,24 @@ def generate(limit_seeds: int | None = None) -> tuple[list[BenchItem], Counter]:
             report["fabricated_skipped_exists"] += 1
             print(f"  skip fabricated {base_cite}: all probes resolve in corpus")
             continue
-        items.append(BenchItem(id=f"fabricated-{i}", klass=FABRICATED_CITE, citation=cite, case_name=name,
-                               quote=None, claim=None,
-                               brief_text=_brief(i, name, f"{cite} ({WRONG_COURTS[i % len(WRONG_COURTS)]} {2003 + i})"),
-                               expected_verdict="fabricated", expected_flag=True,
-                               notes="Invented cite with a plausible volume and page, confirmed absent at build time."))
+        item = BenchItem(id=f"fabricated-{i}", klass=FABRICATED_CITE, citation=cite, case_name=name,
+                         quote=None, claim=None,
+                         brief_text=_brief(i, name, f"{cite} ({WRONG_COURTS[i % len(WRONG_COURTS)]} {2003 + i})"),
+                         expected_verdict="fabricated", expected_flag=True,
+                         notes="Invented cite with a plausible volume and page, confirmed absent at build time.")
+        items.append(item)
+        _checkpoint([item], report)
 
     for i, (cite, name, year) in enumerate(_recent_cites()):
-        items.append(BenchItem(id=f"recent-{i}", klass=UNVERIFIABLE_RECENT, citation=cite, case_name=name,
-                               quote=None, claim=None,
-                               brief_text=_brief(i, name, f"{cite} (S.D.N.Y. {year})"),
-                               expected_verdict="unverifiable", expected_flag=True,
-                               notes="Database or very recent cite outside corpus coverage."))
+        if f"recent-{i}" in done_ids:
+            continue
+        item = BenchItem(id=f"recent-{i}", klass=UNVERIFIABLE_RECENT, citation=cite, case_name=name,
+                         quote=None, claim=None,
+                         brief_text=_brief(i, name, f"{cite} (S.D.N.Y. {year})"),
+                         expected_verdict="unverifiable", expected_flag=True,
+                         notes="Database or very recent cite outside corpus coverage.")
+        items.append(item)
+        _checkpoint([item], report)
     return items, report
 
 
@@ -362,6 +413,8 @@ def main():
     counts = Counter(i.klass for i in items)
     payload = {"class_counts": dict(sorted(counts.items())), "label_report": dict(sorted(report.items()))}
     (DATA_DIR / "label_report.json").write_text(json.dumps(payload, indent=2))
+    PARTIAL.unlink(missing_ok=True)
+    REPORT_PARTIAL.unlink(missing_ok=True)
     print(f"\nWrote {len(items)} items to {out}")
     print(json.dumps(payload, indent=2))
 
