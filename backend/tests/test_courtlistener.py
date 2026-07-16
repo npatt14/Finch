@@ -137,3 +137,34 @@ def test_cache_reuses_opinion_and_year():
     cl.case_year(105)
     assert inner.opinion_calls == 1
     assert inner.year_calls == 1
+
+
+@respx.mock
+def test_opinion_text_prefers_majority_over_dissent():
+    respx.get(f"{BASE}/opinions/").mock(
+        return_value=httpx.Response(
+            200,
+            json={"results": [
+                {"type": "040dissent", "plain_text": "I respectfully dissent."},
+                {"type": "020lead", "plain_text": "We hold that separate is unequal."},
+            ]},
+        )
+    )
+    text = CourtListenerClient().opinion_text(105)
+    assert text == "We hold that separate is unequal."
+
+
+@respx.mock
+def test_opinion_text_concatenates_when_no_majority_text():
+    respx.get(f"{BASE}/opinions/").mock(
+        return_value=httpx.Response(
+            200,
+            json={"results": [
+                {"type": "040dissent", "plain_text": "I respectfully dissent."},
+                {"type": "030concurrence", "plain_text": "I concur in the judgment."},
+            ]},
+        )
+    )
+    text = CourtListenerClient().opinion_text(105)
+    assert "I concur in the judgment." in text
+    assert "I respectfully dissent." in text

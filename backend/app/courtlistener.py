@@ -17,6 +17,15 @@ def _strip_html(html: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _opinion_body(op: dict) -> str:
+    if op.get("plain_text"):
+        return op["plain_text"]
+    for field in ("html_with_citations", "html", "html_lawbox", "xml_harvard"):
+        if op.get(field):
+            return _strip_html(op[field])
+    return ""
+
+
 def _backoff_delay(attempt: int, retry_after: str | None) -> float:
     if retry_after:
         try:
@@ -90,14 +99,16 @@ class CourtListenerClient:
             results = r.json().get("results", [])
         except (httpx.HTTPError, ValueError):
             return ""
-        for op in results:
-            if op.get("plain_text"):
-                return op["plain_text"]
-        for op in results:
-            for field in ("html_with_citations", "html", "html_lawbox", "xml_harvard"):
-                if op.get(field):
-                    return _strip_html(op[field])
-        return ""
+        # CourtListener type codes sort by primacy: 010combined < 020lead < 030concurrence < 040dissent
+        ranked = sorted(results, key=lambda op: op.get("type") or "999")
+        for op in ranked:
+            t = op.get("type") or ""
+            if t and t < "030":
+                body = _opinion_body(op)
+                if body:
+                    return body
+        bodies = [b for b in (_opinion_body(op) for op in ranked) if b]
+        return "\n\n".join(bodies)
 
 
 class CachingCourtListener:
