@@ -163,7 +163,8 @@ def _fabricated_cites() -> list[tuple[str, str]]:
     for i, name in enumerate(names):
         series = "F.4th" if i % 3 == 0 else "F.3d"
         vol = (20 + i * 9) if series == "F.4th" else (240 + i * 61)
-        page = 88 + i * 97
+        # High but plausible pages; many volumes end earlier, so these often do not exist
+        page = 1201 + i * 13
         out.append((f"{vol} {series} {page}", name))
     return out
 
@@ -319,11 +320,19 @@ def generate(limit_seeds: int | None = None) -> tuple[list[BenchItem], Counter]:
         prev_quote_pool.append((quote, name))
         print(f"  [{idx + 1}/{len(seeds)}] {name}: ok")
 
-    for i, (cite, name) in enumerate(_fabricated_cites()):
-        time.sleep(0.7)
-        if not _resolve_not_found(cl, cite):
+    for i, (base_cite, name) in enumerate(_fabricated_cites()):
+        vol, series, base_page = base_cite.split(" ", 2)
+        cite = None
+        for probe in range(6):
+            candidate = f"{vol} {series} {min(int(base_page) + probe * 29, 1399)}"
+            time.sleep(0.7)
+            if _resolve_not_found(cl, candidate):
+                cite = candidate
+                break
+            print(f"  fabricated probe {candidate}: resolves in corpus, trying next page")
+        if cite is None:
             report["fabricated_skipped_exists"] += 1
-            print(f"  skip fabricated {cite}: resolves in corpus")
+            print(f"  skip fabricated {base_cite}: all probes resolve in corpus")
             continue
         items.append(BenchItem(id=f"fabricated-{i}", klass=FABRICATED_CITE, citation=cite, case_name=name,
                                quote=None, claim=None,

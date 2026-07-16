@@ -3,12 +3,15 @@ Live API. Run once; output is committed so generation is reproducible."""
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 
 import httpx
 
 from app.config import Settings
+
+_CLEAN_CITE = re.compile(r"^\d{1,4} F\.(2d|3d|4th) \d{1,5}$")
 
 DATA_DIR = Path(__file__).parent / "data"
 BASE = "https://www.courtlistener.com/api/rest/v4"
@@ -21,22 +24,28 @@ def fetch_seeds(token: str) -> list[dict]:
     client = httpx.Client(headers=headers, timeout=30)
     seeds = []
     for court in COURTS:
-        r = client.get(
-            f"{BASE}/search/",
-            params={
-                "type": "o",
-                "court": court,
-                "filed_after": "1985-01-01",
-                "filed_before": "2018-12-31",
-                "order_by": "dateFiled asc",
-                "stat_Published": "on",
-            },
-        )
+        for attempt in range(6):
+            r = client.get(
+                f"{BASE}/search/",
+                params={
+                    "type": "o",
+                    "court": court,
+                    "filed_after": "1995-01-01",
+                    "filed_before": "2018-12-31",
+                    "order_by": "dateFiled asc",
+                    "stat_Published": "on",
+                },
+            )
+            if r.status_code != 429:
+                break
+            wait = min(float(r.headers.get("retry-after", 2 ** (attempt + 2))), 120.0)
+            print(f"  {court}: throttled, waiting {wait:.0f}s")
+            time.sleep(wait)
         r.raise_for_status()
         kept = 0
         for hit in r.json().get("results", []):
             cites = [c for c in (hit.get("citation") or []) if isinstance(c, str)]
-            reporter_cite = next((c for c in cites if " F." in c), None)
+            reporter_cite = next((c for c in cites if _CLEAN_CITE.fullmatch(c)), None)
             cluster_id = hit.get("cluster_id")
             if not reporter_cite or not cluster_id:
                 continue
