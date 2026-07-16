@@ -29,8 +29,19 @@ from app.models import (
         (E.FOUND, Q.VERBATIM, H.NOT_ADDRESSED, 0.4, V.NOT_SUPPORTED),
         (E.FOUND, Q.ALTERED, H.SUPPORTED, 0.3, V.ALTERED),
         (E.FOUND, Q.VERBATIM, H.NOT_EVALUATED, 1.0, V.VERIFIED),
+        (E.FOUND, Q.NO_QUOTE, H.NOT_EVALUATED, 1.0, V.EXISTS_ONLY),
         (E.FOUND, Q.NO_QUOTE, H.NOT_EVALUATED, 0.0, V.UNVERIFIABLE),
     ],
 )
 def test_decide_verdict(existence, quote, holding, conf, expected):
     assert decide_verdict(existence, quote, holding, conf) == expected
+
+
+def test_uncovered_corpus_miss_is_unverifiable():
+    v = decide_verdict(E.NOT_FOUND, Q.NO_QUOTE, H.NOT_EVALUATED, 1.0, corpus_authoritative=False)
+    assert v == V.UNVERIFIABLE
+
+
+def test_covered_corpus_miss_stays_fabricated():
+    v = decide_verdict(E.NOT_FOUND, Q.NO_QUOTE, H.NOT_EVALUATED, 1.0, corpus_authoritative=True)
+    assert v == V.FABRICATED

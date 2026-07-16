@@ -86,6 +86,6 @@ def apply_attribution(
     actual_year: int | None,
 ) -> tuple[Verdict, str | None]:
     reason = attribution_mismatch(citation, asserted_court, asserted_year, actual_year)
-    if reason and verdict == Verdict.VERIFIED:
+    if reason and verdict in (Verdict.VERIFIED, Verdict.EXISTS_ONLY):
         return Verdict.ALTERED, reason
     return verdict, reason

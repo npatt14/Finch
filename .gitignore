@@ -11,3 +11,5 @@ dist/
 .DS_Store
 .vercel
 backend/eval/data/
+STATE.md
+docs/superpowers/

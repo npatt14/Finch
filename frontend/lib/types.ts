@@ -1,4 +1,4 @@
-export type Verdict = "verified" | "altered" | "not_supported" | "unverifiable" | "fabricated";
+export type Verdict = "verified" | "exists_only" | "altered" | "not_supported" | "unverifiable" | "fabricated";
 
 export interface CitationUnit {
   unit_id: number;

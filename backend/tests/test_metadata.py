@@ -67,3 +67,9 @@ def test_apply_overrides_verified_to_altered():
 def test_apply_does_not_downgrade_already_flagged():
     verdict, _ = apply_attribution(Verdict.FABRICATED, "410 U.S. 113", "Ninth Circuit", "1998", 1973)
     assert verdict == Verdict.FABRICATED
+
+
+def test_attribution_upgrades_exists_only():
+    v, reason = apply_attribution(Verdict.EXISTS_ONLY, "347 U.S. 483", "Ninth Circuit", "1998", 1954)
+    assert v == Verdict.ALTERED
+    assert reason

@@ -111,3 +111,34 @@ def test_chat_answers_from_thread_state():
     graph.invoke({"text": BRIEF, "session_id": "t2"}, config)
     answer = chat_answer(services, graph, "t2", "Where does the quote appear?")
     assert "opinion" in answer.lower()
+
+
+def test_missing_uncovered_cite_is_unverifiable():
+    from app.graph import _verify_one
+    from app.models import CitationUnit
+
+    services = make_test_services()
+    unit = CitationUnit(unit_id=1, citation="2025 WL 1188342", case_name="Reyes v. Coastal Dynamics")
+    result = _verify_one(services, unit, "t4")
+    assert result.verdict == Verdict.UNVERIFIABLE
+
+
+def test_missing_covered_cite_stays_fabricated():
+    from app.graph import _verify_one
+    from app.models import CitationUnit
+
+    services = make_test_services()
+    unit = CitationUnit(unit_id=1, citation="925 F.3d 1339", case_name="Varghese")
+    result = _verify_one(services, unit, "t5")
+    assert result.verdict == Verdict.FABRICATED
+
+
+def test_existence_only_unit_is_exists_only():
+    from app.graph import _verify_one
+    from app.models import CitationUnit
+
+    services = make_test_services()
+    unit = CitationUnit(unit_id=1, citation="347 U.S. 483", case_name="Brown v. Board of Education")
+    result = _verify_one(services, unit, "t6")
+    assert result.verdict == Verdict.EXISTS_ONLY
+    assert "existence" in result.explanation.lower() or "exists" in result.explanation.lower()

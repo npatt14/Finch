@@ -29,6 +29,7 @@ class HoldingStatus(str, Enum):
 
 class Verdict(str, Enum):
     VERIFIED = "verified"
+    EXISTS_ONLY = "exists_only"
     ALTERED = "altered"
     NOT_SUPPORTED = "not_supported"
     UNVERIFIABLE = "unverifiable"
@@ -73,9 +74,10 @@ def decide_verdict(
     holding_status: HoldingStatus,
     holding_confidence: float,
     threshold: float = 0.6,
+    corpus_authoritative: bool = True,
 ) -> Verdict:
     if existence == ExistenceStatus.NOT_FOUND:
-        return Verdict.FABRICATED
+        return Verdict.FABRICATED if corpus_authoritative else Verdict.UNVERIFIABLE
     if existence in (ExistenceStatus.FOUND_WEB, ExistenceStatus.AMBIGUOUS):
         return Verdict.UNVERIFIABLE
     if quote_status == QuoteStatus.NOT_FOUND:
@@ -84,6 +86,8 @@ def decide_verdict(
         return Verdict.NOT_SUPPORTED
     if quote_status == QuoteStatus.ALTERED or holding_status == HoldingStatus.PARTIALLY_SUPPORTED:
         return Verdict.ALTERED
+    if quote_status == QuoteStatus.NO_QUOTE and holding_status == HoldingStatus.NOT_EVALUATED:
+        return Verdict.EXISTS_ONLY if holding_confidence >= threshold else Verdict.UNVERIFIABLE
     if holding_status in (HoldingStatus.SUPPORTED, HoldingStatus.NOT_EVALUATED) and holding_confidence < threshold:
         return Verdict.UNVERIFIABLE
     return Verdict.VERIFIED

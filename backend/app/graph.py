@@ -9,6 +9,7 @@ from langgraph.types import Send
 
 from app.adjudicate import adjudicate
 from app.chunking import chunk_opinion
+from app.coverage import corpus_covers
 from app.extraction import attach_quotes_and_claims, detect_injection, extract_citation_units
 from app.metadata import apply_attribution
 from app.models import (
@@ -17,6 +18,7 @@ from app.models import (
     HoldingStatus,
     QuoteStatus,
     UnitResult,
+    Verdict,
     decide_verdict,
 )
 from app.quotecheck import check_quote
@@ -49,6 +51,10 @@ def make_checkpointer(settings):
     return saver
 
 
+def _to_year(value: str | None) -> int | None:
+    return int(value) if value and value.isdigit() else None
+
+
 def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> UnitResult:
     existence, cluster_id, url = services.cl.resolve(unit.citation)
     trail = [f"CourtListener lookup: {existence.value}"]
@@ -59,18 +65,27 @@ def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> Unit
         trail.extend(urls[:3])
         if found:
             existence = ExistenceStatus.FOUND_WEB
+        covered = corpus_covers(unit.citation, _to_year(unit.asserted_year))
+        verdict = decide_verdict(
+            existence, QuoteStatus.NO_QUOTE, HoldingStatus.NOT_EVALUATED, 1.0, corpus_authoritative=covered
+        )
+        if existence == ExistenceStatus.FOUND_WEB:
+            explanation = "Found on the web but not in the case law corpus, verify manually."
+        elif verdict == Verdict.FABRICATED:
+            explanation = "No matching case found in the corpus, citation variants, or web search."
+        else:
+            trail.append("Corpus is not authoritative for this citation form")
+            explanation = (
+                "Not found, but the corpus is not authoritative for this citation form. Verify manually."
+            )
         return UnitResult(
             unit_id=unit.unit_id,
             citation=unit.citation,
             case_name=unit.case_name,
             existence=existence,
-            verdict=decide_verdict(existence, QuoteStatus.NO_QUOTE, HoldingStatus.NOT_EVALUATED, 1.0),
+            verdict=verdict,
             confidence=1.0,
-            explanation=(
-                "Found on the web but not in the case law corpus, verify manually."
-                if existence == ExistenceStatus.FOUND_WEB
-                else "No matching case found in the corpus, citation variants, or web search."
-            ),
+            explanation=explanation,
             search_trail=trail,
         )
 
@@ -155,6 +170,8 @@ def _verify_one(services: Services, unit: CitationUnit, session_id: str) -> Unit
 
     confidence = holding_conf if unit.claim else (quote_conf if unit.quotes else 1.0)
     verdict = decide_verdict(ExistenceStatus.FOUND, quote_status, holding, holding_conf)
+    if verdict == Verdict.EXISTS_ONLY:
+        explanation = "Case exists. No quote or holding claim was attached, so nothing beyond existence was checked."
     if services.settings.metadata_check and (unit.asserted_court or unit.asserted_year):
         new_verdict, reason = apply_attribution(
             verdict, unit.citation, unit.asserted_court, unit.asserted_year, services.cl.case_year(cluster_id)
