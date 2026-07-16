@@ -1,10 +1,15 @@
-import json
-
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.config import Settings
 from app.graph import build_graph, chat_answer
-from app.models import ExistenceStatus, Verdict
+from app.models import (
+    ExistenceStatus,
+    ExtractionPayload,
+    HoldingAssessment,
+    HoldingStatus,
+    UnitAttachment,
+    Verdict,
+)
 from app.services import Services
 from app.vectorstore import make_qdrant_client
 from tests.test_vectorstore import HashEmbedder
@@ -37,22 +42,20 @@ class FakeTavily:
 
 
 def fake_extract(prompt):
-    return json.dumps(
-        {
-            "units": [
-                {
-                    "unit_id": 1,
-                    "quotes": ["[S]eparate educational facilities are inherently unequal."],
-                    "claim": "Separate schools are inherently unequal.",
-                },
-                {"unit_id": 2, "quotes": [], "claim": "Tolling was recognized."},
-            ]
-        }
+    return ExtractionPayload(
+        units=[
+            UnitAttachment(
+                unit_id=1,
+                quotes=["[S]eparate educational facilities are inherently unequal."],
+                claim="Separate schools are inherently unequal.",
+            ),
+            UnitAttachment(unit_id=2, quotes=[], claim="Tolling was recognized."),
+        ]
     )
 
 
 def fake_judge(system, user):
-    return json.dumps({"status": "supported", "confidence": 0.95, "explanation": "direct match"})
+    return HoldingAssessment(status=HoldingStatus.SUPPORTED, confidence=0.95, explanation="direct match")
 
 
 def make_test_services():
@@ -142,3 +145,17 @@ def test_existence_only_unit_is_exists_only():
     result = _verify_one(services, unit, "t6")
     assert result.verdict == Verdict.EXISTS_ONLY
     assert "existence" in result.explanation.lower() or "exists" in result.explanation.lower()
+
+
+def test_graph_degrades_honestly_when_extraction_fails():
+    services = make_test_services()
+
+    def boom(prompt):
+        raise RuntimeError("gateway down")
+
+    services.llm_extract = boom
+    graph = build_graph(services, checkpointer=MemorySaver())
+    state = graph.invoke({"text": BRIEF, "session_id": "t7"}, {"configurable": {"thread_id": "t7"}})
+    assert any("Quote attachment degraded" in w for w in state["warnings"])
+    results = {r["citation"]: r for r in state["results"]}
+    assert results["347 U.S. 483"]["verdict"] == Verdict.EXISTS_ONLY.value

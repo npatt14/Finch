@@ -5,6 +5,7 @@ from typing import Callable
 from langchain_openai import ChatOpenAI
 
 from app.config import Settings
+from app.models import ExtractionPayload, HoldingAssessment
 
 
 def _chat(settings: Settings, model: str) -> ChatOpenAI:
@@ -17,25 +18,40 @@ def _chat(settings: Settings, model: str) -> ChatOpenAI:
     )
 
 
-def make_extract_fn(settings: Settings) -> Callable[[str], str]:
-    def run(prompt: str) -> str:
-        if not settings.gateway_api_key:
-            raise RuntimeError("gateway key not configured")
-        llm = _chat(settings, settings.extraction_model)
-        return llm.invoke([("user", prompt)]).content
+def _require_key(settings: Settings) -> None:
+    if not settings.gateway_api_key:
+        raise RuntimeError("gateway key not configured")
+
+
+def _invoke_structured(llm, schema, messages):
+    structured = llm.with_structured_output(schema, method="function_calling")
+    try:
+        return structured.invoke(messages)
+    except Exception:
+        return structured.invoke(messages)
+
+
+def make_extract_fn(settings: Settings) -> Callable[[str], ExtractionPayload]:
+    def run(prompt: str) -> ExtractionPayload:
+        _require_key(settings)
+        return _invoke_structured(_chat(settings, settings.extraction_model), ExtractionPayload, [("user", prompt)])
 
     return run
 
 
-def make_judge_fn(settings: Settings) -> Callable[[str, str], str]:
-    def run(system: str, user: str) -> str:
-        if not settings.gateway_api_key:
-            raise RuntimeError("gateway key not configured")
-        llm = _chat(settings, settings.adjudication_model)
-        return llm.invoke([("system", system), ("user", user)]).content
+def make_judge_fn(settings: Settings) -> Callable[[str, str], HoldingAssessment]:
+    def run(system: str, user: str) -> HoldingAssessment:
+        _require_key(settings)
+        return _invoke_structured(
+            _chat(settings, settings.adjudication_model), HoldingAssessment, [("system", system), ("user", user)]
+        )
 
     return run
 
 
 def make_chat_fn(settings: Settings) -> Callable[[str, str], str]:
-    return make_judge_fn(settings)
+    def run(system: str, user: str) -> str:
+        _require_key(settings)
+        return _chat(settings, settings.adjudication_model).invoke([("system", system), ("user", user)]).content
+
+    return run

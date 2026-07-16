@@ -9,6 +9,7 @@ from app.config import Settings
 from app.courtlistener import CachingCourtListener, CourtListenerClient
 from app.escalate import TavilyClient
 from app.llm import make_chat_fn, make_extract_fn, make_judge_fn
+from app.models import ExtractionPayload, HoldingAssessment
 from app.rerank import make_reranker
 from app.vectorstore import SessionVectorStore, make_embedder, make_qdrant_client
 
@@ -18,8 +19,8 @@ class Services:
     settings: Settings
     cl: CourtListenerClient
     tavily: TavilyClient
-    llm_extract: Callable[[str], str]
-    llm_judge: Callable[[str, str], str]
+    llm_extract: Callable[[str], ExtractionPayload]
+    llm_judge: Callable[[str, str], HoldingAssessment]
     llm_chat: Callable[[str, str], str]
     embedder: object
     qdrant: QdrantClient

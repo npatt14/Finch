@@ -1,6 +1,7 @@
-import json
+import pytest
 
 from app.extraction import attach_quotes_and_claims, detect_injection, extract_citation_units
+from app.models import ExtractionPayload, UnitAttachment
 
 BRIEF = (
     'In Brown v. Board of Education, 347 U.S. 483 (1954), the Court held that '
@@ -24,20 +25,18 @@ def test_respects_max_units():
     assert len(units) == 1
 
 
-def test_attach_quotes_and_claims_merges_llm_json():
+def test_attach_quotes_and_claims_merges_payload():
     units = extract_citation_units(BRIEF, max_units=40)
 
-    def fake_llm(prompt: str) -> str:
-        return json.dumps(
-            {
-                "units": [
-                    {
-                        "unit_id": units[0].unit_id,
-                        "quotes": ["Separate educational facilities are inherently unequal."],
-                        "claim": "Separate schools are inherently unequal.",
-                    }
-                ]
-            }
+    def fake_llm(prompt: str) -> ExtractionPayload:
+        return ExtractionPayload(
+            units=[
+                UnitAttachment(
+                    unit_id=units[0].unit_id,
+                    quotes=["Separate educational facilities are inherently unequal."],
+                    claim="Separate schools are inherently unequal.",
+                )
+            ]
         )
 
     out = attach_quotes_and_claims(BRIEF, units, fake_llm)
@@ -45,10 +44,14 @@ def test_attach_quotes_and_claims_merges_llm_json():
     assert target.quotes and target.claim
 
 
-def test_attach_survives_bad_json():
+def test_attach_propagates_llm_failure():
     units = extract_citation_units(BRIEF, max_units=40)
-    out = attach_quotes_and_claims(BRIEF, units, lambda p: "not json {")
-    assert [u.citation for u in out] == [u.citation for u in units]
+
+    def boom(prompt: str) -> ExtractionPayload:
+        raise RuntimeError("gateway down")
+
+    with pytest.raises(RuntimeError):
+        attach_quotes_and_claims(BRIEF, units, boom)
 
 
 def test_detect_injection_flags_instruction_text():

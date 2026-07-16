@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ExistenceStatus(str, Enum):
@@ -60,6 +60,27 @@ class UnitResult(BaseModel):
     evidence_url: str | None = None
     explanation: str = ""
     search_trail: list[str] = Field(default_factory=list)
+
+
+class UnitAttachment(BaseModel):
+    unit_id: int
+    quotes: list[str] = Field(default_factory=list)
+    claim: str | None = None
+
+
+class ExtractionPayload(BaseModel):
+    units: list[UnitAttachment] = Field(default_factory=list)
+
+
+class HoldingAssessment(BaseModel):
+    status: HoldingStatus
+    confidence: float = 0.0
+    explanation: str = ""
+
+    @field_validator("confidence")
+    @classmethod
+    def _clamp(cls, v: float) -> float:
+        return max(0.0, min(1.0, v))
 
 
 class VerificationReport(BaseModel):

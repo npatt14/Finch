@@ -45,3 +45,10 @@ def test_uncovered_corpus_miss_is_unverifiable():
 def test_covered_corpus_miss_stays_fabricated():
     v = decide_verdict(E.NOT_FOUND, Q.NO_QUOTE, H.NOT_EVALUATED, 1.0, corpus_authoritative=True)
     assert v == V.FABRICATED
+
+
+def test_holding_assessment_clamps_confidence():
+    from app.models import HoldingAssessment, HoldingStatus
+
+    assert HoldingAssessment(status=HoldingStatus.SUPPORTED, confidence=1.7).confidence == 1.0
+    assert HoldingAssessment(status=HoldingStatus.SUPPORTED, confidence=-0.2).confidence == 0.0
