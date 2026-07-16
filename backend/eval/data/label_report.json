@@ -1,0 +1,21 @@
+{
+  "class_counts": {
+    "adversarial_injection": 60,
+    "altered_quote": 43,
+    "clean_verbatim": 43,
+    "exists_only_cite": 20,
+    "fabricated_cite": 12,
+    "overstated_holding": 60,
+    "unverifiable_recent": 8,
+    "wrong_case_quote": 58,
+    "wrong_court_year": 21
+  },
+  "label_report": {
+    "alter_checks": 60,
+    "faithful_audits": 104,
+    "faithful_rejected": 61,
+    "overstated_audits": 61,
+    "overstated_rejected": 1,
+    "wrongcase_skipped_collision": 1
+  }
+}
