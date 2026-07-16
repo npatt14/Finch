@@ -6,7 +6,7 @@ For each brief whose claim was adjudicated against retrieved opinion passages we
   context recall          - do the passages cover the reference holding?
   answer relevancy        - is the verdict responsive to the claim?
 
-LLM: the same Vercel AI Gateway model Finch adjudicates with. Embeddings: cached voyage-law-2.
+LLM judge: the cross family audit model, never the adjudicator being scored. Embeddings: cached voyage-law-2.
 """
 from __future__ import annotations
 
@@ -58,13 +58,9 @@ class _VoyageEmbeddings(Embeddings):
         return self.inner.embed_query(text)
 
 
-def _build_samples(per_class: int | None, results_file: str = "results.jsonl") -> tuple[list, list[str]]:
-    dataset = {it.id: it for it in load_dataset()}
-    results = [
-        json.loads(line)
-        for line in (DATA_DIR / results_file).read_text().splitlines()
-        if line.strip()
-    ]
+def _build_samples(per_class: int | None, dataset_path: Path, results_path: Path) -> tuple[list, list[str]]:
+    dataset = {it.id: it for it in load_dataset(dataset_path)}
+    results = [json.loads(line) for line in results_path.read_text().splitlines() if line.strip()]
     buckets: dict[str, list] = defaultdict(list)
     ids: list[str] = []
     samples: list = []
@@ -91,20 +87,25 @@ def _build_samples(per_class: int | None, results_file: str = "results.jsonl") -
 
 
 def main():
-    config = sys.argv[1] if len(sys.argv) > 1 else "default"
-    per_class = int(sys.argv[2]) if len(sys.argv) > 2 else 6
-    results_file = "results.jsonl" if config == "default" else f"results_{config}.jsonl"
-    suffix = "" if config == "default" else f"_{config}"
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dataset", default=str(DATA_DIR / "briefbench_v2_dev.jsonl"))
+    ap.add_argument("--results", required=True)
+    ap.add_argument("--suffix", default="")
+    ap.add_argument("--per-class", type=int, default=6)
+    args = ap.parse_args()
+    suffix = f"_{args.suffix}" if args.suffix else ""
     settings = Settings()
-    samples, ids = _build_samples(per_class, results_file)
+    samples, ids = _build_samples(args.per_class, Path(args.dataset), Path(args.results))
     if not samples:
-        print(f"No adjudicated items with contexts found in {results_file}.")
+        print(f"No adjudicated items with contexts found in {args.results}.")
         return
-    print(f"Scoring {len(samples)} adjudicated briefs from {results_file} with RAGAS (<= {per_class}/class)...\n")
+    print(f"Scoring {len(samples)} adjudicated briefs with RAGAS (<= {args.per_class}/class)...\n")
 
     llm = LangchainLLMWrapper(
         ChatOpenAI(
-            model=settings.adjudication_model,
+            model=settings.eval_audit_model,
             base_url=settings.gateway_base_url,
             api_key=settings.gateway_api_key or "unset",
             temperature=0,
@@ -129,7 +130,9 @@ def main():
     )
 
     df = result.to_pandas()
-    df.insert(0, "id", ids[: len(df)])
+    if len(df) != len(ids):
+        raise RuntimeError(f"ragas dropped rows: got {len(df)}, expected {len(ids)}")
+    df.insert(0, "id", ids)
     df.to_csv(DATA_DIR / f"ragas_results{suffix}.csv", index=False)
 
     metric_cols = [c for c in df.columns if c not in ("id", "user_input", "retrieved_contexts", "response", "reference")]

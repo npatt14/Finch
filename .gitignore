@@ -10,6 +10,11 @@ node_modules/
 dist/
 .DS_Store
 .vercel
-backend/eval/data/
+backend/eval/data/*
+!backend/eval/data/briefbench_v2.jsonl
+!backend/eval/data/briefbench_v2_dev.jsonl
+!backend/eval/data/briefbench_v2_holdout.jsonl
+!backend/eval/data/seeds_v2.json
+!backend/eval/data/label_report.json
 STATE.md
 docs/superpowers/

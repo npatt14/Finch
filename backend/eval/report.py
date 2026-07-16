@@ -17,9 +17,9 @@ def _load_json(path: Path) -> dict:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
-def build_payload() -> dict:
-    dataset = {d["id"]: d for d in _load_jsonl(DATA_DIR / "briefbench.jsonl")}
-    results = {r["id"]: r for r in _load_jsonl(DATA_DIR / "results.jsonl")}
+def build_payload(dataset_path: Path, results_path: Path, metrics_path: Path, ragas_path: Path) -> dict:
+    dataset = {d["id"]: d for d in _load_jsonl(dataset_path)}
+    results = {r["id"]: r for r in _load_jsonl(results_path)}
     rows = []
     for rid, d in dataset.items():
         r = results.get(rid, {})
@@ -52,8 +52,8 @@ def build_payload() -> dict:
     rows.sort(key=lambda x: (x["klass"] or "", x["id"]))
     return {
         "rows": rows,
-        "metrics": _load_json(DATA_DIR / "metrics.json"),
-        "ragas": _load_json(DATA_DIR / "ragas_summary.json"),
+        "metrics": _load_json(metrics_path),
+        "ragas": _load_json(ragas_path),
     }
 
 
@@ -94,7 +94,7 @@ input[type=search]{min-width:240px;flex:1}
 .ctx{background:#0c0e12;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0;font-size:12px;color:#cbd3e0;white-space:pre-wrap}
 code{background:#0c0e12;padding:1px 5px;border-radius:5px}
 .count{color:var(--mut);margin-left:auto}
-.v-verified{color:var(--good)}.v-fabricated,.v-not_supported{color:var(--bad)}.v-altered,.v-unverifiable,.v-error{color:var(--warn)}
+.v-verified{color:var(--good)}.v-exists_only{color:var(--mut)}.v-fabricated,.v-not_supported{color:var(--bad)}.v-altered,.v-unverifiable,.v-error{color:var(--warn)}
 </style></head><body>
 <header><h1>BriefBench — Finch Evaluation</h1>
 <div class="sub">Synthetic legal-brief citation dataset · classification + retrieval quality</div></header>
@@ -124,6 +124,7 @@ function cards(){
   const h = M.headline||{};
   const defs = [
     ['Items', M.n_items ?? rows.length],
+    ['Real case called fabricated', pct(h.real_case_called_fabricated)],
     ['Exact verdict acc.', pct(h.exact_verdict_accuracy)],
     ['Clean verified', pct(h.clean_verified_rate)],
     ['False-positive (clean)', pct(h.false_positive_rate_on_clean)],
@@ -207,11 +208,20 @@ function render(){
 
 
 def main():
-    payload = build_payload()
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dataset", default=str(DATA_DIR / "briefbench_v2_dev.jsonl"))
+    ap.add_argument("--results", required=True)
+    ap.add_argument("--metrics", required=True)
+    ap.add_argument("--ragas", default=str(DATA_DIR / "ragas_summary.json"))
+    ap.add_argument("--out", default=str(DATA_DIR / "report.html"))
+    args = ap.parse_args()
+    payload = build_payload(Path(args.dataset), Path(args.results), Path(args.metrics), Path(args.ragas))
     html = HTML.replace("__PAYLOAD__", json.dumps(payload).replace("</", "<\\/"))
-    out = DATA_DIR / "report.html"
+    out = Path(args.out)
     out.write_text(html)
-    print(f"Wrote {out} ({len(payload['rows'])} rows, {len(html)//1024} KB)")
+    print(f"Wrote {out} ({len(payload['rows'])} rows, {len(html) // 1024} KB)")
 
 
 if __name__ == "__main__":
