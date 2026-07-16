@@ -89,7 +89,7 @@ def verify_item(graph, item: BenchItem, run_id: str) -> EvalResult:
     )
 
 
-def run(items: list[BenchItem], graph, run_id: str, throttle: float = 0.4) -> list[EvalResult]:
+def run(items: list[BenchItem], graph, run_id: str, throttle: float = 0.4, on_result=None) -> list[EvalResult]:
     results = []
     for i, item in enumerate(items, 1):
         try:
@@ -97,6 +97,8 @@ def run(items: list[BenchItem], graph, run_id: str, throttle: float = 0.4) -> li
         except Exception as exc:
             res = _error_result(item, str(exc))
         results.append(res)
+        if on_result:
+            on_result(res)
         print(
             f"  [{i}/{len(items)}] {item.klass:22} {item.citation:26} "
             f"exp={item.expected_verdict:12} got={res.actual_verdict}"
@@ -172,13 +174,30 @@ def aggregate(metric_dicts: list[dict]) -> dict:
     return agg
 
 
+def _load_run_results(path: Path) -> list[EvalResult]:
+    if not path.exists():
+        return []
+    return [EvalResult.model_validate_json(line) for line in path.read_text().splitlines() if line.strip()]
+
+
 def run_named(items: list[BenchItem], out_dir: Path, settings: Settings, n_runs: int, throttle: float = 0.4) -> dict:
-    out_dir.mkdir(parents=True, exist_ok=False)
+    out_dir.mkdir(parents=True, exist_ok=True)
     all_metrics = []
     for n in range(1, n_runs + 1):
-        graph = build_eval_graph(settings)
-        results = run(items, graph, run_id=f"{out_dir.name}-r{n}", throttle=throttle)
-        (out_dir / f"results_r{n}.jsonl").write_text("\n".join(r.model_dump_json() for r in results) + "\n")
+        results_path = out_dir / f"results_r{n}.jsonl"
+        done = {r.id for r in _load_run_results(results_path)}
+        todo = [it for it in items if it.id not in done]
+        if done:
+            print(f"  resuming run {n}: {len(done)} items already checkpointed")
+        if todo:
+            graph = build_eval_graph(settings)
+            with results_path.open("a") as f:
+                def checkpoint(r, f=f):
+                    f.write(r.model_dump_json() + "\n")
+                    f.flush()
+
+                run(todo, graph, run_id=f"{out_dir.name}-r{n}", throttle=throttle, on_result=checkpoint)
+        results = _load_run_results(results_path)
         metrics = compute_metrics(results)
         (out_dir / f"metrics_r{n}.json").write_text(json.dumps(metrics, indent=2))
         all_metrics.append(metrics)
