@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     gateway_base_url: str = "https://ai-gateway.vercel.sh/v1"
     extraction_model: str = "anthropic/claude-haiku-4.5"
     adjudication_model: str = "anthropic/claude-sonnet-5"
+    eval_gen_model: str = "openai/gpt-5.1"
+    eval_audit_model: str = "google/gemini-2.5-pro"
     voyage_api_key: str = ""
     embedding_model: str = "voyage-law-2"
     rerank_enabled: bool = False
